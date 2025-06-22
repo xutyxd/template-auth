@@ -31,7 +31,7 @@ docker-compose exec keycloak /opt/keycloak/bin/kcadm.sh config credentials \
   --password ${ADMIN_PASSWORD}
 
 docker-compose exec keycloak /opt/keycloak/bin/kcadm.sh create realms \
-  -s realm=myapp \
+  -s realm=origin-app \
   -s enabled=true
 
 echo "✅ Deployment complete!"
