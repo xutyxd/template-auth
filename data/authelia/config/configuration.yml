@@ -1,0 +1,37 @@
+theme: auto
+default_redirection_url: https://local.hexag0n.app
+
+server:
+  address: 0.0.0.0:9091
+
+log:
+  level: info
+  format: text
+
+session:
+  name: authelia_session
+  expiration: 1h
+  inactivity: 5m
+  domain: local.hexag0n.app
+  same_site: lax
+
+storage:
+  postgres:
+    address: postgres:5432
+    database: authelia
+    schema: public
+    username: authelia
+
+notifier:
+  filesystem:
+    filename: /config/notification.txt
+
+access_control:
+  default_policy: deny
+  rules:
+    - domain: "*.local.hexag0n.app"
+      policy: two_factor
+
+authentication_backend:
+  file:
+    path: /config/users.yml

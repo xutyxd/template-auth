@@ -1,1 +1,9 @@
 .env
+
+data/authelia/secrets/JWT_SECRET
+data/authelia/secrets/SESSION_SECRET
+data/authelia/secrets/STORAGE_PASSWORD
+data/authelia/secrets/STORAGE_ENCRYPTION_KEY
+
+data/authelia/config/notification.txt
+data/authelia/config/users.yml
