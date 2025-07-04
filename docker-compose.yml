@@ -1,13 +1,3 @@
-secrets:
-  JWT_SECRET:
-    file: '${PWD}/data/authelia/secrets/JWT_SECRET'
-  SESSION_SECRET:
-    file: '${PWD}/data/authelia/secrets/SESSION_SECRET'
-  STORAGE_PASSWORD:
-    file: '${PWD}/data/authelia/secrets/STORAGE_PASSWORD'
-  STORAGE_ENCRYPTION_KEY:
-    file: '${PWD}/data/authelia/secrets/STORAGE_ENCRYPTION_KEY'
-
 services:
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -17,41 +7,105 @@ services:
       - TUNNEL_TOKEN=${CLOUDFLARED_TOKEN}
     restart: unless-stopped
     networks:
-      - net
+      - ory-net
 
   postgres:
     image: postgres:16-alpine
     container_name: postgres
     restart: unless-stopped
-    networks:
-      - net
     environment:
-      POSTGRES_DB: authelia
-      POSTGRES_USER: authelia
-      POSTGRES_PASSWORD_FILE: /run/secrets/STORAGE_PASSWORD
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     secrets:
       - STORAGE_PASSWORD
     ports:
       - 5432:5432
     volumes:
       - pgdata:/var/lib/postgresql/data
-
-  authelia:
-    container_name: authelia
-    image: docker.io/authelia/authelia:latest
-    restart: unless-stopped
     networks:
-      - net
-    ports:
-      - 9091:9091
-    secrets: ['JWT_SECRET', 'SESSION_SECRET', 'STORAGE_PASSWORD', 'STORAGE_ENCRYPTION_KEY']
+      - ory-net
+
+  # === Kratos Migration ===
+  kratos-migrate:
+    image: oryd/kratos:v1.1.0
+    depends_on:
+      - postgres
+    entrypoint: >
+      sh -c "
+        kratos migrate sql -e --yes ||
+        echo 'Kratos migrations already applied or failed — skipping...'
+      "
     environment:
-      AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE: '/run/secrets/JWT_SECRET'
-      AUTHELIA_SESSION_SECRET_FILE: '/run/secrets/SESSION_SECRET'
-      AUTHELIA_STORAGE_POSTGRES_PASSWORD_FILE: '/run/secrets/STORAGE_PASSWORD'
-      AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE: '/run/secrets/STORAGE_ENCRYPTION_KEY'
+      - DSN=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+
+# === Hydra Migration ===
+  hydra-migrate:
+    image: oryd/hydra:v2.2.0
+    depends_on:
+      - postgres
+    entrypoint: >
+      sh -c "
+        hydra migrate sql -e --yes ||
+        echo 'Hydra migrations already applied or failed — skipping...'
+      "
+    environment:
+      - DSN=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+
+# === ORY Kratos (Identity) ===
+  kratos:
+    image: oryd/kratos:v1.1.0
+    depends_on:
+      - kratos-migrate
+    ports:
+      - "4433:4433" # Public
+      - "4434:4434" # Admin
     volumes:
-      - ${PWD}/data/authelia/config:/config
+      - ./config/kratos:/etc/kratos
+    command: serve --watch-courier
+    environment:
+      - DSN=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      - SECRETS_DEFAULT=${KRATOS_SECRET}
+      - LOG_LEVEL=debug
+      - KRATOS_BROWSER_URL=http://localhost:4433
+      - KRATOS_PUBLIC_URL=http://localhost:4433
+      - KRATOS_ADMIN_URL=http://localhost:4434
+      - KRATOS_SELF_SERVICE_URL=http://localhost:4434/self-service
+
+# === ORY Hydra (OAuth2) ===
+  hydra:
+    image: oryd/hydra:v2.2.0
+    depends_on:
+      - hydra-migrate
+    ports:
+      - "4444:4444" # Public
+      - "4445:4445" # Admin
+    command: serve all --dangerous-force-http
+    environment:
+      - DSN=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      - SECRETS_SYSTEM=${HYDRA_SYSTEM_SECRET}
+      - OIDC_SUBJECT_IDENTIFIERS_PAIRWISE_SALT=${HYDRA_SALT}
+      - URLS_SELF_ISSUER=http://localhost:4444
+      - URLS_CONSENT=http://localhost:3000/consent
+      - URLS_LOGIN=http://localhost:3000/login
+      - URLS_LOGOUT=http://localhost:3000/logout
+      - SERVE_PUBLIC_PORT=4444
+      - SERVE_ADMIN_PORT=4445
+    
+  # === ORY Keto (Permissions) ===
+  keto:
+    image: oryd/keto:v0.12.0
+    depends_on:
+      - postgres
+    ports:
+      - "4466:4466" # Read/Write API
+      - "4467:4467" # Admin API
+    volumes:
+      - ./config/keto:/etc/keto
+    command: serve --config /etc/keto/keto.yml
+    environment:
+      - DSN=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      - LOG_LEVEL=debug
 
   hello-world:
     container_name: helloworld
@@ -60,10 +114,10 @@ services:
     ports:
       - "8080:5678"   # expose to host on port 8080
     networks:
-      - net
+      - ory-net
 
 networks:
-  net:
+  ory-net:
     driver: bridge
 
 volumes:
