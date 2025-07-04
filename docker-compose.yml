@@ -66,7 +66,7 @@ services:
       - postgres
     entrypoint: >
       sh -c "
-        keto migrate sql -e --yes ||
+        keto migrate up --config /etc/keto/keto.yml --yes ||
         echo 'Keto migrations already applied or failed — skipping...'
       "
     environment:
