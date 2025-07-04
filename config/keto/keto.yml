@@ -1,0 +1,29 @@
+namespaces:
+  - id: 0
+    name: default
+
+serve:
+  read:
+    host: 0.0.0.0
+    port: 4466
+    cors:
+      enabled: true
+  write:
+    host: 0.0.0.0
+    port: 4467
+    cors:
+      enabled: true
+  opl:
+    host: 0.0.0.0
+    port: 4468
+    cors:
+      enabled: true
+  metrics:
+    host: 0.0.0.0
+    port: 4469
+    cors:
+      enabled: false
+
+log:
+  level: debug
+  format: text

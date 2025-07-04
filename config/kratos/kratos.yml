@@ -1,0 +1,50 @@
+log:
+  level: debug
+  format: text
+
+serve:
+  public:
+    host: 0.0.0.0
+    port: 4433
+  admin:
+    host: 0.0.0.0
+    port: 4434
+
+selfservice:
+  default_browser_return_url: http://localhost:3000
+  flows:
+    login:
+      lifespan: 1h
+      ui_url: http://localhost:3000/login
+    registration:
+      lifespan: 1h
+      ui_url: http://localhost:3000/register
+    settings:
+      ui_url: http://localhost:3000/settings
+    recovery:
+      enabled: true
+      ui_url: http://localhost:3000/recovery
+    verification:
+      enabled: true
+      ui_url: http://localhost:3000/verify
+    logout:
+      after:
+        default_browser_return_url: http://localhost:3000/
+
+identity:
+  default_schema_id: default
+  schemas:
+    - id: default
+      url: file:///etc/config/kratos/identity.schema.json
+
+courier:
+  smtp:
+    connection_uri: smtps://mail@example.com:password@mailserver:465/?skip_ssl_verify=true
+
+hashers:
+  argon2:
+    parallelism: 1
+    memory: "131072KB"   # ← must be a string
+    iterations: 4
+    salt_length: 16
+    key_length: 32

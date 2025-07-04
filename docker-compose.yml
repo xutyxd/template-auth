@@ -17,12 +17,15 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    secrets:
-      - STORAGE_PASSWORD
     ports:
       - 5432:5432
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - ory-net
 
@@ -38,6 +41,8 @@ services:
       "
     environment:
       - DSN=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    networks:
+      - ory-net
 
 # === Hydra Migration ===
   hydra-migrate:
@@ -51,18 +56,35 @@ services:
       "
     environment:
       - DSN=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    networks:
+      - ory-net
+# === Keto Migration ===
+  keto-migrate:
+    image: oryd/keto:v0.12.0
+    depends_on:
+      - postgres
+    entrypoint: >
+      sh -c "
+        keto migrate sql -e --yes ||
+        echo 'Keto migrations already applied or failed — skipping...'
+      "
+    environment:
+      - DSN=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+    networks:
+      - ory-net
 
 # === ORY Kratos (Identity) ===
   kratos:
     image: oryd/kratos:v1.1.0
     depends_on:
-      - kratos-migrate
+      kratos-migrate:
+        condition: service_completed_successfully
     ports:
       - "4433:4433" # Public
       - "4434:4434" # Admin
     volumes:
-      - ./config/kratos:/etc/kratos
-    command: serve --watch-courier
+      - ./config/kratos:/etc/config/kratos
+    command: serve --watch-courier --config /etc/config/kratos/kratos.yml
     environment:
       - DSN=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
       - SECRETS_DEFAULT=${KRATOS_SECRET}
@@ -71,16 +93,21 @@ services:
       - KRATOS_PUBLIC_URL=http://localhost:4433
       - KRATOS_ADMIN_URL=http://localhost:4434
       - KRATOS_SELF_SERVICE_URL=http://localhost:4434/self-service
+    networks:
+      - ory-net
 
 # === ORY Hydra (OAuth2) ===
   hydra:
     image: oryd/hydra:v2.2.0
     depends_on:
-      - hydra-migrate
+      hydra-migrate:
+        condition: service_completed_successfully
     ports:
       - "4444:4444" # Public
       - "4445:4445" # Admin
-    command: serve all --dangerous-force-http
+    volumes:
+      - ./config/hydra:/etc/hydra
+    command: serve all --dev
     environment:
       - DSN=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
       - SECRETS_SYSTEM=${HYDRA_SYSTEM_SECRET}
@@ -91,12 +118,15 @@ services:
       - URLS_LOGOUT=http://localhost:3000/logout
       - SERVE_PUBLIC_PORT=4444
       - SERVE_ADMIN_PORT=4445
-    
+    networks:
+      - ory-net
+
   # === ORY Keto (Permissions) ===
   keto:
     image: oryd/keto:v0.12.0
     depends_on:
-      - postgres
+      keto-migrate:
+        condition: service_completed_successfully
     ports:
       - "4466:4466" # Read/Write API
       - "4467:4467" # Admin API
@@ -106,6 +136,8 @@ services:
     environment:
       - DSN=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
       - LOG_LEVEL=debug
+    networks:
+      - ory-net
 
   hello-world:
     container_name: helloworld

@@ -1,0 +1,23 @@
+serve:
+  public:
+    host: 0.0.0.0
+    port: 4444
+    tls:
+      enabled: false
+  admin:
+    host: 0.0.0.0
+    port: 4445
+    tls:
+      enabled: false
+
+log:
+  level: debug
+  format: text
+
+urls:
+  self:
+    issuer: http://hydra:4444
+  consent: http://localhost:4455/consent
+  login: http://localhost:4455/login
+  logout: http://localhost:4455/logout
+  error: http://localhost:4455/error
