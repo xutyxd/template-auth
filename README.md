@@ -1,197 +1,205 @@
-**README\_ORY\_STACK.md**\
-Detailed setup for PostgreSQL + ORY Kratos + ORY Hydra + ORY Keto via Docker Compose
+## Basic Description
+
+This repository provides a fully integrated Identity and Access Management (IAM) stack leveraging the ORY suite (Kratos, Hydra, Keto) alongside essential infrastructure services. All components are orchestrated via Docker Compose, enabling rapid deployment of:
+
+- **ORY Kratos** for user management (registration, login, recovery).
+- **ORY Hydra** for OAuth2 and OpenID Connect flows.
+- **ORY Keto** for fine-grained role-based access control (RBAC) and permission management.
+- **PostgreSQL** as the shared datastore for all ORY services.
+- **Cloudflared** for secure tunneling (e.g., exposing local services through Cloudflare Tunnels).
+
+This setup ensures a scalable, secure, and modular authentication and authorization foundation suitable for production-grade applications in enterprise environments.
 
 ---
 
-## 🎯 Objective
+## Services Overview
 
-This repository provides a **complete Docker Compose** stack to spin up:
+### 1. cloudflared
 
-- **PostgreSQL**: Shared relational database
-- **ORY Kratos**: Identity and user management (registration, login)
-- **ORY Hydra**: OAuth2 / OpenID Connect server (authorization)
-- **ORY Keto**: Fine‑grained authorization (permission management)
+**Use:** Establishes a secure tunnel to expose local services over the internet using Cloudflare's network.
 
-Use this stack as a **foundation** for building applications with secure authentication, authorization, and user management.
+**Why Required:** Provides easy and secure access to internal services (e.g., ORY endpoints) without managing public DNS or firewall rules. Ideal for demos, development, or staging environments.
 
----
+### 2. postgres
 
-## 🔌 Prerequisites
+**Use:** Runs PostgreSQL 16 (Alpine), serving as the persistent datastore for Kratos, Hydra, and Keto.
 
-1. **Docker** ≥ 20.10
-2. **Docker Compose** ≥ 1.29
-3. **Git** (to clone this repo)
-4. **OpenSSL** (for generating secrets)
-5. A command‑line HTTP tool (e.g. `curl` or `httpie`)
+**Why Required:** Centralized, reliable SQL database ensures data consistency and supports migrations. Environment variables configure separate schemas for each ORY service to avoid conflicts.
 
----
+### 3. kratos-migrate
 
-## 📁 Directory Structure
+**Use:** Executes schema migrations for ORY Kratos before the main service starts.
 
-```bash
-├── docker-compose.yml
-├── kratos/
-│   ├── kratos.yml
-│   └── identity.schema.json
-├── keto/
-│   └── keto.yml
-└── README.md
-```
+**Why Required:** Automates database bootstrapping and ensures that the `kratos` service has the correct tables and indices. The migration container runs only once per deploy.
 
----
+### 4. kratos
 
-## 🚀 Installation & Startup
+**Use:** Provides the Identity API (registration, login, profile management, session handling).
 
-1. **Clone the repo**:
+**Why Required:** Core identity management service handling self-service flows via REST endpoints. Configured via `config/kratos/kratos.yml`.
+
+**Example Usage:**
+
+1. **Initialize Registration Flow**
 
    ```bash
-   git clone https://github.com/xutyxd/template-auth.git && cd template-auth
+   # Start a browser-based registration flow
+   curl \
+     -X GET "http://localhost:4433/self-service/registration/browser" \
+     -c "cookies.txt"
    ```
 
-2. **(Optional) Generate cryptographic secrets**:
+2. **Submit Registration Form**
 
    ```bash
-   export KRATOS_SECRET=$(openssl rand -hex 32)
-   export HYDRA_SYSTEM_SECRET=$(openssl rand -hex 32)
-   export HYDRA_SALT=$(openssl rand -hex 32)
+   curl \
+     -X POST "http://localhost:4433/self-service/registration?flow=<FLOW_ID>" \
+     -b "cookies.txt" -c "cookies.txt" \
+     -H "Content-Type: application/json" \
+     -d '{"traits": {"email": "user@example.com"}, "password": "P@ssw0rd!"}'
    ```
 
-3. **Review** and ensure **no port conflicts** on your machine.
-
-4. **Start the stack**:
+3. **Login Flow**
 
    ```bash
-   docker compose up -d
+   # Initialize
+   curl -X GET "http://localhost:4433/self-service/login/browser" -c cookies.txt
+
+   # Submit
+   curl -X POST "http://localhost:4433/self-service/login?flow=<FLOW_ID>" \
+     -b cookies.txt -c cookies.txt \
+     -H "Content-Type: application/json" \
+     -d '{"identifier": "user@example.com", "password": "P@ssw0rd!"}'
    ```
 
-5. **Verify containers** are running:
+---
+
+### 5. hydra-migrate
+
+**Use:** Applies database migrations for ORY Hydra.
+
+**Why Required:** Ensures that the Hydra database schema is up-to-date before serving OAuth2 requests.
+
+### 6. hydra
+
+**Use:** OAuth2 and OpenID Connect provider handling client management, consent dialogues, and token issuance.
+
+**Why Required:** Implements industry-standard protocols to secure API access. Configured in `config/hydra` and runs in developer mode for rapid iterations.
+
+**Example Usage:**
+
+1. **Register an OAuth2 Client**
 
    ```bash
-   docker ps --filter "name=ory-"
+   hydra clients create \
+     --endpoint http://localhost:4445 \
+     --id my-client \
+     --secret s3cr3t \
+     --grant-types authorization_code,refresh_token \
+     --response-types code,id_token \
+     --scope openid,offline \
+     --callbacks http://localhost:3000/callback
+   ```
+
+2. **Authorize and Obtain Code**
+
+   ```bash
+   # Open in browser:
+   http://localhost:4444/oauth2/auth?response_type=code&client_id=my-client&scope=openid%20offline&redirect_uri=http://localhost:3000/callback
+   ```
+
+3. **Exchange Code for Tokens**
+
+   ```bash
+   curl -X POST "http://localhost:4444/oauth2/token" \
+     -u my-client:s3cr3t \
+     -d grant_type=authorization_code \
+     -d code=<CODE> \
+     -d redirect_uri=http://localhost:3000/callback
    ```
 
 ---
 
-## 🔧 Configuration
+### 7. keto-migrate
 
-### 1. `docker-compose.yml`
+**Use:** Applies migrations for ORY Keto's permission storage.
 
-Contains service definitions and shared network.
+**Why Required:** Prepares the permissions database schema to support policy definitions and enforcement.
 
-### 2. Kratos (`kratos/kratos.yml`)
+### 8. keto
 
-- **DSN**: `postgres://ory:secret@postgres:5432/ory?sslmode=disable`
-- **Secrets**: Replace `changeme` with `$KRATOS_SECRET`
-- **Self‑service UI URLs**: Update `ui_url` to your front‑end endpoints
+**Use:** Fine-grained authorization engine supporting Access Control Lists (ACLs), Role-Based Access Control (RBAC), and more.
 
-### 3. Kratos Identity Schema (`kratos/identity.schema.json`)
+**Why Required:** Decouples authorization logic from application code, offering high performance and consistency.
 
-Defines user traits (e.g. email).
+**Example Usage:**
 
-### 4. Keto (`keto/keto.yml`)
+1. **Define a Permission Policy**
 
-- **DSN**: same as Kratos
-- **Namespaces**: Pre‑defined `default` namespace; add more as needed
+   ```bash
+   # Create a JSON policy file (policy.json)
+   cat <<EOF > policy.json
+   {
+     "id": "document:read",
+     "description": "Allow reading documents",
+     "subjects": ["user:alice"],
+     "resources": ["document:123"],
+     "actions": ["read"]
+   }
+   EOF
 
----
+   # Apply policy via Keto Admin API
+   curl -X PUT "http://localhost:4467/engines/acp/ory/policies/document:read" \
+     -H "Content-Type: application/json" \
+     -d @policy.json
+   ```
 
-## 🔐 Environment Variables & Secrets
+2. **Check a Permission**
 
-| Service | Variable                                 | Description                           |
-| ------- | ---------------------------------------- | ------------------------------------- |
-| Kratos  | `DSN`                                    | Database connection string            |
-|         | `SECRETS_DEFAULT`                        | Argon2 hashing secret (hex, 32 bytes) |
-| Hydra   | `DSN`                                    | Database connection string            |
-|         | `SECRETS_SYSTEM`                         | Hydra system secret (hex, 32 bytes)   |
-|         | `OIDC_SUBJECT_IDENTIFIERS_PAIRWISE_SALT` | Pairwise salt (hex, 32 bytes)         |
-| Keto    | `DSN`                                    | Database connection string            |
-
-> **Tip**: Use `openssl rand -hex 32` to generate each secret.
-
----
-
-## 🐞 Troubleshooting
-
-- **Ports in use**: Change host ports in `docker-compose.yml` or stop conflicting services.
-- **Database migrations fail**:
-  ```bash
-  docker logs ory-kratos | grep ERROR
-  ```
-- **Kratos UI unreachable**: Ensure your front‑end URLs match `ui_url` in `kratos.yml`.
-- **Hydra clients not created**: Use the Admin API on port `4445` (e.g. `http://localhost:4445/clients`).
-- **Keto permission errors**: Check namespace and tuple payload formats.
+   ```bash
+   curl -X POST "http://localhost:4466/engines/acp/ory/allowed" \
+     -H "Content-Type: application/json" \
+     -d '{"subject": "user:alice", "resource": "document:123", "action": "read"}'
+   ```
 
 ---
 
-## 📚 Basic Tutorial: Realm, Users, Groups, Roles & Permissions
+## Getting Started
 
-### 1. Create a Keto Namespace (Realm)
+1. **Prerequisites**
 
-```bash
-curl -X POST http://localhost:4467/namespaces/default
-# Already exists by default; to add another:
-curl -X POST http://localhost:4467/namespaces \
-  -d '{"id": "projects"}' -H 'Content-Type: application/json'
-```
+   - Docker Engine >= 24.x
+   - Docker Compose CLI
+   - Environment variables file (`.env`) with credentials and secrets (e.g., `POSTGRES_USER`, `HYDRA_SYSTEM_SECRET`, etc.)
 
-### 2. Register a User in Kratos
+2. **Launching the Stack**
 
-```bash
-curl -X POST http://localhost:4434/self-service/registration/api \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "method": "password",
-    "traits": {"email": "alice@example.com"},
-    "password": "P@ssw0rd"
-  }'
-```
+   ```bash
+   docker-compose up -d
+   ```
 
-### 3. Create a Group / Role (via Keto Relation Tuples)
+3. **Verify Services**
 
-```bash
-# Define "group:admins" as a role in namespace "default"
-# Assign user to group:
-curl -X PUT http://localhost:4466/relation-tuples \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "namespace": "default",
-    "object": "group:admins",
-    "relation": "member",
-    "subject_id": "user:alice@example.com"
-  }'
-```
+   ```bash
+   docker-compose ps
+   ```
 
-### 4. Define Permissions on Resources
+4. **Access Dashboards and Endpoints**
 
-```bash
-# Allow admins to manage "project:123"
-curl -X PUT http://localhost:4466/relation-tuples \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "namespace": "default",
-    "object": "project:123",
-    "relation": "manage",
-    "subject_set": {
-      "namespace": "default",
-      "object": "group:admins",
-      "relation": "member"
-    }
-  }'
-```
-
-### 5. Check Permission
-
-```bash
-curl -G http://localhost:4466/check \
-  --data-urlencode 'namespace=default' \
-  --data-urlencode 'object=project:123' \
-  --data-urlencode 'relation=manage' \
-  --data-urlencode 'subject_id=user:alice@example.com'
-# Expected: { "allowed": true }
-```
+   - Kratos Public: [http://localhost:4433](http://localhost:4433)
+   - Kratos Admin: [http://localhost:4434](http://localhost:4434)
+   - Hydra Public: [http://localhost:4444](http://localhost:4444)
+   - Hydra Admin: [http://localhost:4445](http://localhost:4445)
+   - Keto Read API: [http://localhost:4466](http://localhost:4466)
+   - Keto Admin API: [http://localhost:4467](http://localhost:4467)
 
 ---
 
-**Enjoy building with ORY!**\
-Feel free to extend schemas, namespaces, and permission rules as your application grows.
+## Best Practices
 
+- **Secrets Management:** Integrate with a secret manager (e.g., Vault) instead of storing `.env` in version control.
+- **TLS Everywhere:** Terminate TLS at Cloudflare or via a sidecar to secure all traffic.
+- **Production Mode:** Replace `--dev` flags and configure distributed Datastores, persistent volumes, and backup strategies.
+- **Monitoring & Logging:** Integrate with Prometheus/Grafana and structured logging for observability.
+
+---
