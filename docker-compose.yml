@@ -32,7 +32,7 @@ services:
 
   # === Kratos Migration ===
   kratos-migrate:
-    image: oryd/kratos:v1.1.0
+    image: oryd/kratos:v1.3.1
     depends_on:
       - postgres
     entrypoint: >
@@ -47,7 +47,7 @@ services:
 
 # === Hydra Migration ===
   hydra-migrate:
-    image: oryd/hydra:v2.2.0
+    image: oryd/hydra:v2.3.0
     depends_on:
       - postgres
     entrypoint: >
@@ -62,7 +62,7 @@ services:
 
 # === Keto Migration ===
   keto-migrate:
-    image: oryd/keto:v0.12.0
+    image: oryd/keto:v0.14.0
     depends_on:
       - postgres
     volumes:
@@ -79,7 +79,7 @@ services:
 
 # === ORY Kratos (Identity) ===
   kratos:
-    image: oryd/kratos:v1.1.0
+    image: oryd/kratos:v1.3.1
     depends_on:
       kratos-migrate:
         condition: service_completed_successfully
@@ -109,7 +109,7 @@ services:
 
 # === ORY Hydra (OAuth2) ===
   hydra:
-    image: oryd/hydra:v2.2.0
+    image: oryd/hydra:v2.3.0
     depends_on:
       hydra-migrate:
         condition: service_completed_successfully
@@ -141,7 +141,7 @@ services:
 
 # === ORY Keto (Permissions) ===
   keto:
-    image: oryd/keto:v0.12.0
+    image: oryd/keto:v0.14.0
     depends_on:
       keto-migrate:
         condition: service_completed_successfully
